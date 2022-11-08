@@ -2,18 +2,24 @@ package com.hmdp.service.impl;
 
 import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
+import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisConstants;
+import com.hmdp.utils.RedisData;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
+import java.time.LocalDateTime;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,10 +36,16 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private CacheClient cacheClient;
+
 
     @Override
     public Result queryById(Long id) {
-        Shop shop=queryWithMutex(id);
+        //
+        Shop shop = cacheClient.queryWithPassThrough(RedisConstants.CACHE_SHOP_KEY, id, Shop.class
+                , this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
+
         return Result.ok(shop);
     }
 
@@ -78,34 +90,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         return shop;
     }
 
-    public Shop queryWithPassThrough(Long id){
-        // 缓存穿透
-        // 1.查询商铺信息
-        String shopJson = stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
 
-        if(StrUtil.isNotBlank(shopJson)){
-            return JSONUtil.toBean(shopJson, Shop.class);
-        }
-        // 判断命中是不是空
-        if(shopJson!=null){
-            return null;
-        }
-
-        Shop shop =getById(id);
-
-        if(shop==null){
-            // 空数据写入缓存
-            stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY + id,
-                    "", RedisConstants.CACHE_NULL_TTL, TimeUnit.MINUTES);
-
-            return null;
-        }
-
-        stringRedisTemplate.opsForValue().set("cache:shop:"+id,JSONUtil.toJsonStr(shop)
-                , RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
-
-        return shop;
-    }
 
     private boolean tryLock(String key){
       Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key,"1",RedisConstants.LOCK_SHOP_TTL,TimeUnit.SECONDS);
@@ -115,8 +100,6 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private void unlock(String key){
         stringRedisTemplate.delete(key);
     }
-
-    private void saveShop2Redis()
 
     @Override
     @Transactional
