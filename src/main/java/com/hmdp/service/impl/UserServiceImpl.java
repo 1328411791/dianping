@@ -59,7 +59,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if(RegexUtils.isPhoneInvalid(phone)){
             return Result.fail("手机号错误");
         }
-
         String cacheCode =redisTemplate.opsForValue().get(RedisConstants.LOGIN_CODE_KEY
                 +phone);
         String code=loginForm.getCode();
